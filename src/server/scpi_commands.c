@@ -610,6 +610,7 @@ static scpi_result_t RP_ADC_SetAcquisitionStatus(scpi_t * context) {
 		rxEnabled = true;
 	} else {
 		rxEnabled = false;
+		buffInitialized = false;
 	}
 	
     return SCPI_RES_OK;
@@ -965,8 +966,8 @@ const scpi_command_t scpi_commands[] = {
 	{.pattern = "RP:DAC:CHannel#:SIGnaltype?", .callback = RP_DAC_GetSignalType,},
         {.pattern = "RP:DAC:CHannel#:DC:SIGn", .callback = RP_DAC_SetDCSign,},
         {.pattern = "RP:DAC:CHannel#:DC:SIGn?", .callback = RP_DAC_GetDCSign,},
-	{.pattern = "RP:DAC:SlowDAC", .callback = RP_ADC_SetNumSlowADCChan,},
-	{.pattern = "RP:DAC:SlowDAC?", .callback = RP_ADC_GetNumSlowADCChan,},
+	{.pattern = "RP:ADC:SlowADC", .callback = RP_ADC_SetNumSlowADCChan,},
+	{.pattern = "RP:ADC:SlowADC?", .callback = RP_ADC_GetNumSlowADCChan,},
 	{.pattern = "RP:ADC:DECimation", .callback = RP_ADC_SetDecimation,},
 	{.pattern = "RP:ADC:DECimation?", .callback = RP_ADC_GetDecimation,},
 	{.pattern = "RP:ADC:PERiod", .callback = RP_ADC_SetSamplesPerPeriod,},
