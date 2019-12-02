@@ -29,6 +29,29 @@ int newdatasockfd;
 struct sockaddr_in newdatasockaddr;
 socklen_t newdatasocklen;
 
+static scpi_result_t RP_Init(scpi_t * context) {
+    int64_t isMast;
+    if (!SCPI_ParamInt64(context, &isMast, TRUE)) {
+	return SCPI_RES_ERR;
+    }
+
+    if(!initialized)
+    {
+	if(isMast) {
+	    setMaster();
+	} else {
+	    setSlave();
+	}
+        init();
+        initialized = true;
+    }
+	
+    return SCPI_RES_OK;
+}
+
+
+
+
 static scpi_result_t RP_DAC_GetAmplitude(scpi_t * context) {
     int32_t numbers[2];
 	SCPI_CommandNumbers(context, numbers, 2, 1);
@@ -442,6 +465,24 @@ static scpi_result_t RP_ADC_SlowDACInterpolation(scpi_t * context) {
         return SCPI_RES_OK;
 }
 
+static scpi_result_t RP_ADC_SetNumSlowADCChan(scpi_t * context) {
+        if(rxEnabled) {
+                return SCPI_RES_ERR;
+        }
+
+        if (!SCPI_ParamInt32(context, &numSlowADCChan, TRUE)) {
+                return SCPI_RES_ERR;
+        }
+
+        return SCPI_RES_OK;
+}
+
+static scpi_result_t RP_ADC_GetNumSlowADCChan(scpi_t * context) {
+        SCPI_ResultInt32(context, numSlowADCChan);
+
+        return SCPI_RES_OK;
+}
+
 static scpi_result_t RP_ADC_GetCurrentFrame(scpi_t * context) {
         // Reading is only possible while an acquisition is running
         if(!rxEnabled) {
@@ -520,6 +561,28 @@ static scpi_result_t RP_ADC_GetPeriods(scpi_t * context) {
     return SCPI_RES_OK;
 }
 
+static scpi_result_t RP_ADC_Slow_GetFrames(scpi_t * context) {
+	// Reading is only possible while an acquisition is running
+	if(!rxEnabled) {
+		return SCPI_RES_ERR;
+	}
+	
+	int64_t frame;
+    if (!SCPI_ParamInt64(context, &frame, TRUE)) {
+		return SCPI_RES_ERR;
+	}
+	
+	int64_t numFrames;
+	if (!SCPI_ParamInt64(context, &numFrames, TRUE)) {
+		return SCPI_RES_ERR;
+	}
+	
+	//printf("invoke sendDataToHost()");
+	sendSlowFramesToHost(frame, numFrames);
+	
+    return SCPI_RES_OK;
+}
+
 static scpi_result_t RP_ADC_StartAcquisitionConnection(scpi_t * context) {
 	bool connectionEstablished = false;
 	
@@ -535,7 +598,7 @@ printf("RP_ADC_StartAcquisitionConnection\n");
 		}
 	}
 	
-	SCPI_ResultBool(context, connectionEstablished);
+//	SCPI_ResultBool(context, connectionEstablished);
 	
     return SCPI_RES_OK;
 }
@@ -570,6 +633,7 @@ static scpi_result_t RP_ADC_SetAcquisitionStatus(scpi_t * context) {
 		rxEnabled = true;
 	} else {
 		rxEnabled = false;
+		buffInitialized = false;
 	}
 	
     return SCPI_RES_OK;
@@ -909,6 +973,7 @@ const scpi_command_t scpi_commands[] = {
     {.pattern = "STATus:PRESet", .callback = SCPI_StatusPreset,},
 
     /* RP-DAQ */
+    {.pattern = "RP:Init", .callback = RP_Init,},
     {.pattern = "RP:DAC:CHannel#:COMPonent#:AMPlitude?", .callback = RP_DAC_GetAmplitude,},
 	{.pattern = "RP:DAC:CHannel#:COMPonent#:AMPlitude", .callback = RP_DAC_SetAmplitude,},
 	{.pattern = "RP:DAC:CHannel#:COMPonent#:FREQuency?", .callback = RP_DAC_GetFrequency,},
@@ -925,6 +990,8 @@ const scpi_command_t scpi_commands[] = {
 	{.pattern = "RP:DAC:CHannel#:SIGnaltype?", .callback = RP_DAC_GetSignalType,},
         {.pattern = "RP:DAC:CHannel#:DC:SIGn", .callback = RP_DAC_SetDCSign,},
         {.pattern = "RP:DAC:CHannel#:DC:SIGn?", .callback = RP_DAC_GetDCSign,},
+	{.pattern = "RP:ADC:SlowADC", .callback = RP_ADC_SetNumSlowADCChan,},
+	{.pattern = "RP:ADC:SlowADC?", .callback = RP_ADC_GetNumSlowADCChan,},
 	{.pattern = "RP:ADC:DECimation", .callback = RP_ADC_SetDecimation,},
 	{.pattern = "RP:ADC:DECimation?", .callback = RP_ADC_GetDecimation,},
 	{.pattern = "RP:ADC:PERiod", .callback = RP_ADC_SetSamplesPerPeriod,},
@@ -941,6 +1008,7 @@ const scpi_command_t scpi_commands[] = {
 	{.pattern = "RP:ADC:FRAmes:CURRent?", .callback = RP_ADC_GetCurrentFrame,},
 	{.pattern = "RP:ADC:WP:CURRent?", .callback = RP_ADC_GetCurrentWP,},
 	{.pattern = "RP:ADC:FRAmes:DATa", .callback = RP_ADC_GetFrames,},
+	{.pattern = "RP:ADC:Slow:FRAmes:DATa", .callback = RP_ADC_Slow_GetFrames,},
 	{.pattern = "RP:ADC:ACQCONNect", .callback = RP_ADC_StartAcquisitionConnection,},
 	{.pattern = "RP:ADC:ACQSTATus", .callback = RP_ADC_SetAcquisitionStatus,},
 	{.pattern = "RP:ADC:ACQSTATus?", .callback = RP_ADC_GetAcquisitionStatus,},

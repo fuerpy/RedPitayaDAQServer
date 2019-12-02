@@ -61,6 +61,7 @@
 volatile int numSamplesPerPeriod = 5000;
 volatile int numPeriodsPerFrame = 20;
 int numSlowDACChan = 0;
+int numSlowADCChan = 0;
 int numSlowDACFramesEnabled = 0;
 int enableSlowDAC = 0;
 int enableSlowDACAck = true;
@@ -77,7 +78,9 @@ volatile int64_t data_read, data_read_total;
 volatile int64_t channel;
 
 uint32_t *buffer = NULL;
+bool initialized = false;
 bool rxEnabled = false;
+bool buffInitialized = false;
 bool acquisitionThreadRunning = false;
 bool commThreadRunning = false;
 
@@ -85,6 +88,8 @@ float *slowDACLUT = NULL;
 bool slowDACInterpolation = false;
 double slowDACRampUpTime = 0.4;
 double slowDACFractionRampUp = 0.8;
+float *slowADCBuffer = NULL;
+
 
 pthread_t pAcq;
 pthread_t pSlowDAC;
@@ -423,6 +428,39 @@ void sendPeriodsToHost(int64_t period, int64_t numPeriods) {
   }
 }
 
+void sendSlowFramesToHost(int64_t frame, int64_t numFrames) {
+  int n;
+  int64_t frameInBuff = frame % numFramesInMemoryBuffer;
+
+  if(numFrames+frameInBuff < numFramesInMemoryBuffer) {
+    n = write(newdatasockfd, slowADCBuffer+frameInBuff*numPeriodsPerFrame*numSlowADCChan, 
+        numPeriodsPerFrame * numFrames * numSlowADCChan * sizeof(float));
+
+    if (n < 0) {
+      printf("Error in sendToHost()\n");
+      perror("ERROR writing to socket"); 
+    }
+  } else {
+    int64_t frames1 = numFramesInMemoryBuffer - frameInBuff;
+    int64_t frames2 = numFrames - frames1;
+    n = write(newdatasockfd, slowADCBuffer+frameInBuff*numPeriodsPerFrame*numSlowADCChan,
+        numPeriodsPerFrame * numSlowADCChan * frames1 *sizeof(float));
+
+    if (n < 0) {
+      printf("Error in sendToHost() (else part 1)\n");
+      perror("ERROR writing to socket");
+    }
+
+    n = write(newdatasockfd, slowADCBuffer,
+        numPeriodsPerFrame * numSlowADCChan * frames2 * sizeof(float));
+
+    if (n < 0) {
+      printf("Error in sendToHost() (else part 2)\n");
+      perror("ERROR writing to socket");
+    }
+  }
+}
+
 void initBuffer() {
   buff_size = numSamplesPerFrame*numFramesInMemoryBuffer;
   printf("numFramesInMemoryBuffer = %ld \n", numFramesInMemoryBuffer);
@@ -434,10 +472,18 @@ void initBuffer() {
   printf("Allocating buffer of size %ld \n", buff_size*sizeof(uint32_t));
   buffer = (uint32_t*)malloc(buff_size * sizeof(uint32_t));
   memset(buffer, 0, buff_size * sizeof(uint32_t));
+  slowADCBuffer = (float*)malloc(numFramesInMemoryBuffer * 
+		                 numPeriodsPerFrame * numSlowADCChan * sizeof(float));
+  memset(slowADCBuffer, 0, numFramesInMemoryBuffer * numSlowADCChan *
+		           numPeriodsPerFrame * sizeof(float));
+
+  buffInitialized = true;
 }
 
 void releaseBuffer() {
   free(buffer);
+  free(slowADCBuffer);
+  buffInitialized = false;
 }
 
 void* slowDACThread(void* ch) 
@@ -466,7 +512,7 @@ void* slowDACThread(void* ch)
   while(acquisitionThreadRunning) {
     // Reset everything in order to provide a fresh start
     // everytime the acquisition is started
-    if(rxEnabled && numSlowDACChan > 0) {
+    if(rxEnabled && buffInitialized && numSlowDACChan > 0) {
       printf("Start sending...\n");
       data_read_total = 0; 
       oldPeriodTotal = -1;
@@ -542,9 +588,20 @@ void* slowDACThread(void* ch)
 	      frameSlowDACEnabled = currentFrameTotal + rampUpTotalFrames;
 	      enableSlowDACAck = true;
 	    }
+
             if(!enableSlowDAC) 
             {
               enableSlowDACLocal = false;
+	    }
+            
+	    if (numSlowADCChan > 0) 
+	    {
+              int currPeriodADC = currentPeriodTotal % ( numFramesInMemoryBuffer * numPeriodsPerFrame);
+            
+              for( int i=0; i< numSlowADCChan; i++)
+	      { 
+	        slowADCBuffer[i + currPeriodADC*numSlowADCChan] = getXADCValueVolt(i);
+	      }
 	    }
 
             for (int i=0; i< numSlowDACChan; i++) 
@@ -589,6 +646,7 @@ void* slowDACThread(void* ch)
                 status = setPDMNextValueVolt(val, i);             
 	      }
 
+
               //uint64_t curr = getPDMRegisterValue();
 
               if (status != 0) 
@@ -616,6 +674,7 @@ void joinThreads()
 {
   acquisitionThreadRunning = false;
   rxEnabled = false;
+  buffInitialized = false;
   pthread_join(pAcq, NULL);
   pthread_join(pSlowDAC, NULL);
 }
@@ -632,7 +691,6 @@ void* communicationThread(void* p)
     {
       stopTx();
       //setMasterTrigger(MASTER_TRIGGER_OFF);
-      rxEnabled = false;
       joinThreads();
       break;
     }
@@ -655,7 +713,6 @@ void* communicationThread(void* p)
         printf("Connection closed\r\n");
         stopTx();
         //setMasterTrigger(MASTER_TRIGGER_OFF);
-        rxEnabled = false;
         joinThreads();
         commThreadRunning = false;
         break;
@@ -724,7 +781,6 @@ int main(int argc, char** argv) {
   (void) argc;
   (void) argv;
   int rc;
-  bool firstConnection = true;
 
   int listenfd;
 
@@ -733,6 +789,7 @@ int main(int argc, char** argv) {
   newdatasockfd = 0;
 
   rxEnabled = false;
+  buffInitialized = false;
 
   // Set priority of this thread
   /*struct sched_param p;
@@ -772,13 +829,6 @@ int main(int argc, char** argv) {
 
       scpi_context.user_context = &clifd;
 
-      if(firstConnection) 
-      {
-        // Init FPGA
-        init();
-        firstConnection = false;
-      }
-
       // if comm thread still running -> join it
       if(commThreadRunning)
       {
@@ -795,7 +845,6 @@ int main(int argc, char** argv) {
   acquisitionThreadRunning = false;
   stopTx();
   //setMasterTrigger(MASTER_TRIGGER_OFF);
-  rxEnabled = false;
   pthread_join(pAcq, NULL);
   pthread_join(pSlowDAC, NULL);
   releaseBuffer();
