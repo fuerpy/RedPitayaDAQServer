@@ -1,1 +1,1 @@
-vivado -mode batch -source scripts/updateBD.tcl
+vivado -mode batch -source ./scripts/updateBD.tcl
