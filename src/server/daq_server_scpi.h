@@ -130,9 +130,9 @@ uint8_t minDeltaControl;
 uint8_t maxDeltaSet;
 
 // Flash buffer
-extern int bufferfd;
+//extern int bufferfd;
 extern bool clearBufferFlags;
-extern bool bufferEnabled;
+//extern bool bufferEnabled;
 extern pthread_t pBuffer;
 extern bool bufferThreadRunning;
 extern void createBufferThread();

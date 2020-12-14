@@ -105,6 +105,10 @@ scpi_t scpi_context;
 
 struct status err;
 
+bool clearBufferFlags = true;
+bool bufferThreadRunning = false;
+pthread_t pBuffer;
+
 void getprio( pthread_t id ) {
 	int policy;
 	struct sched_param param;
