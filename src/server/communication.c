@@ -446,6 +446,8 @@ void * bufferThread(void*p) {
 	uint64_t writeWP = 0;
 	uint64_t samplesToSend;
 	clearBufferFlags = true;
+	double dist = 0.0;
+	double maxDist = 0.0;
 
 	int bufferOutFd = open(".buffer.bin", O_WRONLY | O_CREAT | O_TRUNC);
 	LOG_INFO("Starting buffer thread");
@@ -461,8 +463,14 @@ void * bufferThread(void*p) {
 			usleep(30);
 		}
 		samplesToSend = writeWP - readWP;
-		sendDataToClient(bufferOutFd, readWP, samplesToSend, clearBufferFlags);
+		sendDataToClient(bufferOutFd, readWP, samplesToSend, true);
 		readWP += samplesToSend;
+
+		dist = perf.deltaRead /(float) ADC_BUFF_SIZE;
+		if (dist > maxDist){
+			maxDist = dist;
+			printf("%f new max dist\n", maxDist);
+		}
 
 		if (err.overwritten || err.corrupted) {
 			printf("Lost data!!!");

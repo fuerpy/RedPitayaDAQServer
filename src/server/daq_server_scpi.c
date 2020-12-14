@@ -215,7 +215,7 @@ void createBufferThread () {
 
 		cpu_set_t mask;
 		CPU_ZERO(&mask);
-		CPU_SET(2, &mask);
+		CPU_SET(1, &mask);
 		if (pthread_setaffinity_np(pBuffer, sizeof(mask), &mask))
 			printf("CPU Mask Buffer failed\n");
 	}
