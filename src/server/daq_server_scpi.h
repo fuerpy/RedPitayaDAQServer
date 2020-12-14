@@ -96,6 +96,7 @@ extern int waitServer(int);
 
 extern void* communicationThread(void*);
 extern void* controlThread(void*);
+extern void* bufferThread(void*);
 extern void joinControlThread();
 
 // data loss
@@ -128,12 +129,20 @@ uint8_t avgDeltaSet;
 uint8_t minDeltaControl;
 uint8_t maxDeltaSet;
 
+// Flash buffer
+extern int bufferfd;
+extern bool clearBufferFlags;
+extern bool bufferEnabled;
+extern pthread_t pBuffer;
+extern bool bufferThreadRunning;
+extern void createBufferThread();
+
 // Client communication
-extern void sendPerformanceDataToClient();
-extern void sendADCPerformanceDataToClient();
-extern void sendDACPerformanceDataToClient();
-extern void sendDataToClient(uint64_t, uint64_t, bool);
-extern void sendPipelinedDataToClient(uint64_t, uint64_t, uint64_t);
+extern void sendPerformanceDataToClient(int);
+extern void sendADCPerformanceDataToClient(int);
+extern void sendDACPerformanceDataToClient(int);
+extern void sendDataToClient(int, uint64_t, uint64_t, bool);
+extern void sendPipelinedDataToClient(int, uint64_t, uint64_t, uint64_t);
 extern void sendSlowFramesToHost(int64_t, int64_t);
 extern void sendFileToClient(FILE*);
 extern void sendStatusToClient();

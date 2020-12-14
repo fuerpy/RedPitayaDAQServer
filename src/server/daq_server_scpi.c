@@ -194,6 +194,30 @@ void createThreads() {
 	return;
 }
 
+void createBufferThread () {
+	if (!bufferThreadRunning) {
+		bufferThreadRunning = true;
+
+		struct sched_param scheduleControl;
+		pthread_attr_t attrControl;
+
+		scheduleControl.sched_priority = 10; //SCHED_RR goes from 1 -99
+		pthread_attr_init(&attrControl);
+		pthread_attr_setinheritsched(&attrControl, PTHREAD_EXPLICIT_SCHED);
+		pthread_attr_setschedpolicy(&attrControl, SCHED_RR);
+		if( pthread_attr_setschedparam(&attrControl, &scheduleControl) != 0)
+			LOG_INFO("Failed to set sched param on buffer thread");
+		pthread_create(&pBuffer, &attrControl, bufferThread, NULL);
+
+		cpu_set_t mask;
+		CPU_ZERO(&mask);
+		CPU_SET(2, &mask);
+		if (pthread_setaffinity_np(pBuffer, sizeof(mask), &mask))
+			printf("CPU Mask Buffer failed\n");
+	}
+}
+
+
 FILE* getLogFile() {
 	return fopen("/media/mmcblk0p1/apps/RedPitayaDAQServer/log.txt", "rb");
 }

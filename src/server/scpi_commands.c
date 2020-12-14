@@ -555,7 +555,7 @@ static scpi_result_t RP_ADC_GetData(scpi_t * context) {
 	}
 
 	//printf("invoke sendDataToHost()");
-	sendDataToClient(reqWP, numSamples, true);
+	sendDataToClient(newdatasockfd, reqWP, numSamples, true);
 
 	return SCPI_RES_OK;
 }
@@ -580,7 +580,7 @@ static scpi_result_t RP_ADC_GetPipelinedData(scpi_t * context) {
 		return SCPI_RES_ERR;
 	}
 
-	sendPipelinedDataToClient(reqWP, numSamples, chunkSize);
+	sendPipelinedDataToClient(newdatasockfd, reqWP, numSamples, chunkSize);
 	return SCPI_RES_OK;
 
 }
@@ -600,7 +600,7 @@ static scpi_result_t RP_ADC_GetDetailedData(scpi_t * context) {
 		return SCPI_RES_ERR;
 	}
 	
-	sendPipelinedDataToClient(reqWP, numSamples, numSamples);
+	sendPipelinedDataToClient(newdatasockfd, reqWP, numSamples, numSamples);
 
 	return SCPI_RES_OK;
 }
@@ -669,6 +669,7 @@ static scpi_result_t RP_ADC_SetAcquisitionStatus(scpi_t * context) {
 	}
 	if(acquisition_status_selection == ACQUISITION_ON) {
 		rxEnabled = true;
+		createBufferThread();
 	} else {
 		rxEnabled = false;
 		buffInitialized = false;
@@ -1104,7 +1105,7 @@ static scpi_result_t RP_GetLog(scpi_t * context) {
 }
 
 static scpi_result_t RP_GetPerformance(scpi_t * context) {
-	sendPerformanceDataToClient();
+	sendPerformanceDataToClient(newdatasockfd);
 	return SCPI_RES_OK;
 }
 

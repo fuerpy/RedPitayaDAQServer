@@ -219,7 +219,7 @@ static size_t copySamplesToBuffer(const void *adc, size_t count) {
 	return ptr;
 }
 
-static bool sendBufferedSamplesToClient(uint64_t wpTotal, uint64_t numSamples) {
+static bool writeBufferedSamplesToFd(int fd, uint64_t wpTotal, uint64_t numSamples) {
 	bool wasCorrupted = false;
 	int n = 0;
 	uint32_t wp = getInternalWritePointer(wpTotal);
@@ -238,7 +238,7 @@ static bool sendBufferedSamplesToClient(uint64_t wpTotal, uint64_t numSamples) {
 		wasCorrupted |= ((daqTotal - (wpTotal + sendSamples + samplesToCopy)) > ADC_BUFF_SIZE && daqTotal > (wpTotal + sendSamples + samplesToCopy));
 
 		//Send samples to client
-		n = writeAll(newdatasockfd, userspaceBuffer, copiedBytes);
+		n = writeAll(fd, userspaceBuffer, copiedBytes);
 		if (n < 0) {
 			LOG_ERROR("Error in writeSamplesChunked.writeAll");
 		}
@@ -248,7 +248,7 @@ static bool sendBufferedSamplesToClient(uint64_t wpTotal, uint64_t numSamples) {
 	return wasCorrupted;
 } 
 
-void sendDataToClient(uint64_t wpTotal, uint64_t numSamples, bool clearFlagsAndPerf) {
+void sendDataToClient(int fd, uint64_t wpTotal, uint64_t numSamples, bool clearFlagsAndPerf) {
 	uint64_t daqTotal = getTotalWritePointer();
 	uint32_t wp = getInternalWritePointer(wpTotal);
 	uint64_t deltaRead = daqTotal - wpTotal;
@@ -269,7 +269,7 @@ void sendDataToClient(uint64_t wpTotal, uint64_t numSamples, bool clearFlagsAndP
 	// Send Data
 	if(wp+numSamples <= ADC_BUFF_SIZE) {
 
-		bool wasCorrupted = sendBufferedSamplesToClient(wpTotal, numSamples);
+		bool wasCorrupted = writeBufferedSamplesToFd(fd, wpTotal, numSamples);
 		
 		uint64_t daqTotalAfter = getTotalWritePointer();
 		deltaSend = daqTotalAfter - daqTotal;
@@ -284,14 +284,14 @@ void sendDataToClient(uint64_t wpTotal, uint64_t numSamples, bool clearFlagsAndP
 		uint64_t size1 = ADC_BUFF_SIZE - wp;                                                              
 		uint64_t size2 = numSamples - size1;
 		
-		sendDataToClient(wpTotal, size1, false);
-		sendDataToClient(wpTotal + size1, size2, false);
+		sendDataToClient(fd, wpTotal, size1, false);
+		sendDataToClient(fd, wpTotal + size1, size2, false);
 
 	}
 
 }
 
-void sendPipelinedDataToClient(uint64_t wpTotal, uint64_t numSamples, uint64_t chunkSize) {
+void sendPipelinedDataToClient(int fd, uint64_t wpTotal, uint64_t numSamples, uint64_t chunkSize) {
 	uint64_t sendSamplesTotal = 0;
 	uint64_t sendSamples = 0;
 	uint64_t samplesToSend = 0;
@@ -316,13 +316,13 @@ void sendPipelinedDataToClient(uint64_t wpTotal, uint64_t numSamples, uint64_t c
 			}
 			samplesToSend = MIN(writeWP - readWP, chunk - sendSamples);
 
-			sendDataToClient(readWP, samplesToSend, clearFlagsAndPerf);
+			sendDataToClient(fd, readWP, samplesToSend, clearFlagsAndPerf);
 			sendSamples += samplesToSend;
 			clearFlagsAndPerf = false; // Only the first sendData each iteration clears the flags
 		}
 
-		sendStatusToClient();
-		sendPerformanceDataToClient();
+		sendStatusToClient(fd);
+		sendPerformanceDataToClient(fd);
 		
 
 		sendSamples = 0;
@@ -349,33 +349,33 @@ void sendFileToClient(FILE* file) {
 	}
 }
 
-void sendPerformanceDataToClient() {
-	sendADCPerformanceDataToClient();
-	sendDACPerformanceDataToClient();
+void sendPerformanceDataToClient(int fd) {
+	sendADCPerformanceDataToClient(fd);
+	sendDACPerformanceDataToClient(fd);
 }
 
-void sendADCPerformanceDataToClient() {
+void sendADCPerformanceDataToClient(int fd) {
 	uint64_t deltas[2] = {perf.deltaRead, perf.deltaSend};
 	int n = 0;
-	n = send(newdatasockfd, deltas, sizeof(deltas), 0);
+	n = send(fd, deltas, sizeof(deltas), 0);
 	if (n < 0) {
 		LOG_WARN("Error while sending ADC performance data");
 	}
 }
 
-void sendDACPerformanceDataToClient() {
+void sendDACPerformanceDataToClient(int fd) {
 	uint8_t perfValues[4] = {avgDeltaControl, avgDeltaSet, minDeltaControl, maxDeltaSet};
 	int n = 0;
-	n = send(newdatasockfd, perfValues, sizeof(perfValues), 0);
+	n = send(fd, perfValues, sizeof(perfValues), 0);
 	if (n < 0) {
 		LOG_WARN("Error while sending DAC performance data");
 	}
 }
 
-void sendStatusToClient() {
+void sendStatusToClient(int fd) {
 	uint8_t status = getStatus();
 	int n = 0;
-	n = send(newdatasockfd, &status, sizeof(status), 0);
+	n = send(fd, &status, sizeof(status), 0);
 	if (n < 0) {
 		LOG_WARN("Error while sending status");
 	}
@@ -441,4 +441,38 @@ void* communicationThread(void* p) {
 	return NULL;
 }
 
+void * bufferThread(void*p) {
+	uint64_t readWP = 0;
+	uint64_t writeWP = 0;
+	uint64_t samplesToSend;
+	clearBufferFlags = true;
+
+	int bufferOutFd = open(".buffer.bin", O_WRONLY | O_CREAT | O_TRUNC);
+	LOG_INFO("Starting buffer thread");
+	while(rxEnabled && commThreadRunning && bufferThreadRunning) {
+
+		//readWP = wpTotal + sendSamplesTotal + sendSamples;
+		writeWP = getTotalWritePointer();
+
+		// Wait for samples to be available
+		samplesToSend = userspaceSizeSamples;
+		while (readWP + samplesToSend >= writeWP) {
+			writeWP = getTotalWritePointer();
+			usleep(30);
+		}
+		samplesToSend = writeWP - readWP;
+		sendDataToClient(bufferOutFd, readWP, samplesToSend, clearBufferFlags);
+		readWP += samplesToSend;
+
+		if (err.overwritten || err.corrupted) {
+			printf("Lost data!!!");
+			break; 
+		}
+	}
+
+	bufferThreadRunning = false;
+
+	close(bufferOutFd);
+	LOG_INFO("Ending buffer thread");
+}
 
