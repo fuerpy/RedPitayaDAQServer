@@ -211,7 +211,7 @@ class RedPitaya:
         return Decimal(data)
     
     def setAmplitude(self, channel, component, amplitude):
-        self.send('RP:DAC:CHannel%d:COMPonent%d:AMPlitude %d' % (channel, component, amplitude))
+        self.send('RP:DAC:CHannel%d:COMPonent%d:AMPlitude %f' % (channel, component, amplitude))
 		
     def getOffset(self, channel):
         data = self.query('RP:DAC:CHannel%d:OFFset?' % (channel))
